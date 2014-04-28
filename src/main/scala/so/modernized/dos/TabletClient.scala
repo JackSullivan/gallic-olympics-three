@@ -1,7 +1,8 @@
 package so.modernized.dos
 
-import akka.actor.{Address, Props, Actor, ActorSystem}
+import akka.actor._
 import akka.util.Timeout
+import akka.pattern.ask
 import com.typesafe.config.ConfigFactory
 import scala.concurrent.Await
 import scala.concurrent.duration._
@@ -10,11 +11,7 @@ import scala.util.Random
 /**
  * @author John Sullivan
  */
-class TabletClient(remoteAddress: Address) {
-
-  def this(olympics: Olympics) = {
-    this(Address("akka.tcp","olympics", "127.0.0.1",2552))
-  }
+class TabletClient(remoteAddress: Address, serverName:String = "frontend") {
 
   implicit val timeout = Timeout(600.seconds)
 
@@ -25,19 +22,27 @@ class TabletClient(remoteAddress: Address) {
 
   println(s"Connecting to remote server at $remote")
 
-  private val router = Await.result(system.actorSelection(remote + "/user/router").resolveOne(), 600.seconds)
-  private val printer = system.actorOf(Props[TabletPrinter])
+  val server = Await.result(system.actorSelection(remote + serverName).resolveOne(600.seconds), 600.seconds)
+
+  private val actor = system.actorOf(TabletActor(server)) //todo resolve nonsense here
+
 
   def getScore(event:String) {
-    router.tell(EventMessage(event, GetEventScore(System.currentTimeMillis())), printer)
+    actor ! EventMessage(event, GetEventScore(System.currentTimeMillis()))
   }
   def getMedalTally(team:String) {
-    router.tell(TeamMessage(team, GetMedalTally(System.currentTimeMillis())), printer)
+    actor ! TeamMessage(team, GetMedalTally(System.currentTimeMillis()))
   }
 }
 
-class TabletPrinter extends Actor {
+object TabletActor {
+  def apply(server:ActorRef) = Props(new TabletActor(server))
+}
+
+class TabletActor(var server:ActorRef) extends Actor {
+  
   def receive: Actor.Receive = {
+
     case TimestampedResponse(timestamp, response) => response match {
       case EventScore(event, score, initTime) => {
         val latency = (System.currentTimeMillis() - initTime)/1000.0
@@ -57,6 +62,13 @@ class TabletPrinter extends Actor {
         println("%s is not participating in these olympics. Timestamped %d. Response took %.2f secs".format(teamName, timestamp, latency))
       }
     }
+    case ServerDown(newServer) => {
+      implicit val t = Timeout(600.seconds)
+      Await.result(newServer ? RegisterTablet, 600.seconds).asInstanceOf[Registered.type]
+      server = newServer
+    }
+    case em:EventMessage => server ! em
+    case tm:TeamMessage => server ! tm
   }
 }
 
@@ -78,12 +90,12 @@ object OlympicServer {
 
 object TabletClient {
   def main(args:Array[String]) {
-    val olympics = new Olympics(Seq("Gaul", "Rome", "Carthage", "Pritannia", "Lacadaemon"), Seq("Curling", "Biathlon", "Piathlon"))
+//    val olympics = new Olympics(Seq("Gaul", "Rome", "Carthage", "Pritannia", "Lacadaemon"), Seq("Curling", "Biathlon", "Piathlon"))
 
-    val client = new TabletClient(olympics)
+//    val client = new TabletClient(olympics)
 
-    val cacofonix = new CacofonixClient(olympics)
-
+//    val cacofonix = new CacofonixClient(olympics)
+/*
     cacofonix.setScore("Curling", "Gaul 1, Rome 2, Carthage 0")
     cacofonix.incrementMedalTally("Lacadaemon", Gold)
 
@@ -94,7 +106,7 @@ object TabletClient {
     client.getMedalTally("Gaul")
     client.getMedalTally("Lacadaemon")
     client.getScore("Curling")
-
+*/
 //    Thread.sleep(5000)
 //    client.shutdown()
 //    olympics.shutdown()

@@ -47,14 +47,10 @@ class FrontendManager(numServers:Int, cacheType:String, dbPath:ActorRef) extends
 }
 
 
-trait FrontedServer extends SubclassableActor {
+trait FrontendServer extends SubclassableActor {
   def dbPath:ActorRef
 }
 
-object FrontendServer {
-  def pulling(_dbPath:ActorRef, id:Int):Props = Props(new CachingFrontend with PullBasedCaching {val dbPath = _dbPath})
-  def pushing(_dbPath:ActorRef, id:Int):Props = Props(new CachingFrontend with PushBasedCaching {val dbPath = _dbPath})
-}
 
 trait CachingFrontend extends FrontendServer with SubclassableActor {
   protected val eventCache = mutable.HashMap[String, EventScore]()
@@ -96,52 +92,29 @@ trait PushBasedCaching extends CachingFrontend with SubclassableActor {
 trait PullBasedCaching extends CachingFrontend with SubclassableActor {
   addReceiver {
     case InvalidateCache =>
-    eventCache.clear()
-    medalCache.clear()
+      eventCache.clear()
+      medalCache.clear()
   }
 }
 
-trait FrontendServer extends SubclassableActor {
-  def dbPath:ActorRef
+object FrontendServer {
+  def pulling(_dbPath:ActorRef, id:Int):Props = Props(new CachingFrontend with PullBasedCaching {val dbPath = _dbPath})
+  def pushing(_dbPath:ActorRef, id:Int):Props = Props(new CachingFrontend with PushBasedCaching {val dbPath = _dbPath})
 
-  def getSynchedTime:Long
-
-  addReceiver {
-    case m:DBWrite => dbPath ! m
-    case ClientRequest(message) => {
-      println("%s received ClientRequest(%s) from %s".format(context.self, message, sender()))
-      dbPath ! DBRequest(message, sender(), context.self)
-    }
-    case DBResponse(response, routee, _) => {
-      println("%s received %s from %s, routing to %s".format(context.self, response, sender(), routee))
-      routee ! TimestampedResponse(getSynchedTime, response)
-    }
-  }
-}
-
-object ConcreteFrontend{
-  def apply(dbPath:ActorRef, id:Int) = Props(new ConcreteFrontend(dbPath, id))
-}
-
-class ConcreteFrontend(val dbPath:ActorRef, val id:Int) extends FrontendServer
-
-object CachingFrontend {
   def main(args:Array[String]) {
     val remote = args(0)
-    val id = args(1).toInt
-    val cacheMode = args(2)
-    assert(cacheMode.toLowerCase() == "pull" || cacheMode.toLowerCase() == "push", "You must specify push or pull as a caching mode")
+    val numServers = args(1).toInt
+    val cacheMode = args(2).toLowerCase
+    assert(cacheMode == "pull" || cacheMode == "push", "You must specify push or pull as a caching mode")
     val cacheInterval = if(args(2) == "push") args(3).toInt else null.asInstanceOf[Int] // FYI We want this NullPointer Exception if we get it
 
     implicit  val timeout = Timeout(600.seconds)
 
-    val system = ActorSystem(s"fronted-$id", ConfigFactory.load(s"clientserve$id"))
+    val system = ActorSystem(s"frontend-system", ConfigFactory.load("frontend"))
 
     val db = Await.result(system.actorSelection(remote + "/user/db").resolveOne(), 600.seconds)
 
-    val frontend = system.actorOf(FrontendManager.props(2, cacheMode, db), "frontend-manager") // todo make possible to move to multiple machines
-
-    ExecutionContext
+    val frontend = system.actorOf(FrontendManager.props(numServers, cacheMode, db), "frontend-manager") // todo make possible to move to multiple machines
 
     if(cacheMode == "pull") {
       system.scheduler.schedule(3.seconds, cacheInterval.seconds)(() => {frontend ! Broadcast(InvalidateCache)})
