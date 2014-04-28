@@ -9,16 +9,11 @@ import scala.collection.mutable
 case class Heartbeat(server:String)
 case object RegisterTablet
 case object Registered
-case class Registration(tablet:ActorRef, serverName:String)
+case class Registration(tablet:ActorRef)
 case class ServerDown(newServer:ActorRef)
 
 trait FaultTolerance extends SubclassableActor with FrontendServer {
-  addReceiver{
-    case RegisterTablet => {
-      context.parent ! Registration(sender, self.path.name)
-      sender ! Registered
-    }
-  }
+
 }
 
 trait FaultManager extends SubclassableActor {
@@ -42,13 +37,19 @@ trait FaultManager extends SubclassableActor {
     }
   }
 
+  def pickServer: ActorRef = {
+    context.child(allocation.keys.head).get
+  }
+
   addReceiver{
     case Heartbeat(server) => {
       lastUpdates(server) = System.currentTimeMillis()
     }
-    case Registration(tablet, serverName) => {
-      println("Registered %s with %s".format(tablet.path.name, serverName))
-      allocation(serverName) += tablet
+    case RegisterTablet => {
+      val serverRef = pickServer
+      allocation(serverRef.path.name) += sender()
+      println(serverRef.path.name)
+      sender ! Registration(serverRef)
     }
   }
 }

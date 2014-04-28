@@ -7,6 +7,7 @@ import com.typesafe.config.ConfigFactory
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Random
+import so.modernized.dos.Registered
 
 /**
  * @author John Sullivan
@@ -26,6 +27,10 @@ class TabletClient(remoteAddress: Address, serverName:String = "frontend") {
 
   private val actor = system.actorOf(TabletActor(server)) //todo resolve nonsense here
 
+
+  def register(frontend: ActorRef) = {
+    frontend.tell(RegisterTablet, actor)
+  }
 
   def getScore(event:String) {
     actor ! EventMessage(event, GetEventScore(System.currentTimeMillis()))
@@ -69,6 +74,7 @@ class TabletActor(var server:ActorRef) extends Actor {
     }
     case em:EventMessage => server ! em
     case tm:TeamMessage => server ! tm
+    case Registration(serverRef) => server = serverRef
   }
 }
 
@@ -83,6 +89,8 @@ object OlympicServer {
   def main(args: Array[String]) {
     val olympics = new Olympics(Seq("Gaul", "Rome", "Carthage", "Pritannia", "Lacadaemon"), Seq("Curling", "Biathlon", "Piathlon"))
     println("Let the games begin!")
+
+    val client = new TabletClient(Address("akka","olympics", "127.0.0.1",2552))
 
 //    olympics.shutdown()
   }

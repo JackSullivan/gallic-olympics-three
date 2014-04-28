@@ -1,26 +1,35 @@
 package so.modernized.dos
 
-import akka.actor.{Actor, ActorSystem, Props, ActorRef}
+import akka.actor._
 import com.typesafe.config.ConfigFactory
 import akka.util.Timeout
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Await}
 import scala.collection.mutable
-import akka.routing.Broadcast
 import ExecutionContext.Implicits.global
+import akka.routing.Broadcast
+import scala.collection.mutable.ArrayBuffer
+
 
 /**
  * @author John Sullivan
  */
-case class ClientRequest(request:AnyRef)
-case class DBWrite(message:AnyRef)
-case class DBRequest(message:AnyRef, finalRoutee:ActorRef, serverRoutee:ActorRef)
-case class DBResponse(response:AnyRef, finalRoutee:ActorRef, serverRoutee:ActorRef)
-case class TimestampedResponse(timestamp:Long, response:AnyRef)
+case class ClientRequest(request: AnyRef)
 
-case class InvalidateEvent(event:String)
-case class InvalidateTeam(team:String)
+case class DBWrite(message: AnyRef)
+
+case class DBRequest(message: AnyRef, finalRoutee: ActorRef, serverRoutee: ActorRef)
+
+case class DBResponse(response: AnyRef, finalRoutee: ActorRef, serverRoutee: ActorRef)
+
+case class TimestampedResponse(timestamp: Long, response: AnyRef)
+
+case class InvalidateEvent(event: String)
+
+case class InvalidateTeam(team: String)
+
 case object InvalidateCache
+
 trait WriteMessage
 
 /**
@@ -29,26 +38,35 @@ trait WriteMessage
  * both the server through which it came and the original client to route it to.
  */
 object FrontendManager {
-  def props(numServers:Int, cacheType:String, dbPath:ActorRef) = Props(new FrontendManager(numServers, cacheType, dbPath))
+  def props(numServers: Int, cacheType: String, dbPath: ActorRef) = Props(new FrontendManager(numServers, cacheType, dbPath))
 }
 
-class FrontendManager(numServers:Int, cacheType:String, dbPath:ActorRef) extends Actor {
+class FrontendManager(numServers: Int, cacheType: String, dbPath: ActorRef) extends SubclassableActor with FaultManager {
 
-  (0 until numServers).foreach { index =>
-    cacheType match {
-      case "push" => context.actorOf(FrontendServer.pushing(dbPath, index), s"frontend-$index")
-      case "pull" => context.actorOf(FrontendServer.pulling(dbPath, index), s"frontend-$index")
-    }
+  def deathThreshold = 2000L
+
+  (0 until numServers).foreach {
+    index =>
+      cacheType match {
+        case "push" => {
+          context.actorOf(FrontendServer.pushing(dbPath, index), s"frontend-$index")
+          allocation.update(s"frontend-$index", new ArrayBuffer[ActorRef])
+        }
+        case "pull" => {
+          context.actorOf(FrontendServer.pulling(dbPath, index), s"frontend-$index")
+          allocation.update(s"frontend-$index", new ArrayBuffer[ActorRef])
+        }
+      }
   }
 
-  def receive = {
+  addReceiver {
     case Broadcast(message) => context.children.foreach(_ ! message)
   }
 }
 
 
 trait FrontendServer extends SubclassableActor {
-  def dbPath:ActorRef
+  def dbPath: ActorRef
 }
 
 
@@ -56,7 +74,7 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
   protected val eventCache = mutable.HashMap[String, EventScore]()
   protected val medalCache = mutable.HashMap[String, MedalTally]()
 
-  addReceiver{
+  addReceiver {
     case ClientRequest(message) => {
       println("%s received ClientRequest(%s) from %s".format(context.self, message, sender()))
       message match {
@@ -79,8 +97,8 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
 }
 
 trait PushBasedCaching extends CachingFrontend with SubclassableActor {
-  addReceiver{
-    case m:DBWrite =>
+  addReceiver {
+    case m: DBWrite =>
       dbPath ! m
       m.message match {
         case EventMessage(event, _) => context.parent ! Broadcast(InvalidateEvent(event)) //frontends.foreach(_ ! InvalidateEvent(event))
@@ -98,27 +116,46 @@ trait PullBasedCaching extends CachingFrontend with SubclassableActor {
 }
 
 object FrontendServer {
-  def pulling(_dbPath:ActorRef, id:Int):Props = Props(new CachingFrontend with PullBasedCaching {val dbPath = _dbPath})
-  def pushing(_dbPath:ActorRef, id:Int):Props = Props(new CachingFrontend with PushBasedCaching {val dbPath = _dbPath})
+  def pulling(_dbPath: ActorRef, id: Int): Props = Props(new CachingFrontend with PullBasedCaching {
+    val dbPath = _dbPath
+  })
 
-  def main(args:Array[String]) {
-    val remote = args(0)
+  def pushing(_dbPath: ActorRef, id: Int): Props = Props(new CachingFrontend with PushBasedCaching {
+    val dbPath = _dbPath
+  })
+
+}
+
+object Tester {
+  def main(args: Array[String]): Unit = {
+    val remote = "akka.tcp://frontend-system@127.0.0.1:2552"
     val numServers = args(1).toInt
     val cacheMode = args(2).toLowerCase
+
+    println("REMOTE: " + remote)
+    println("NUM SERVERS: " + numServers)
+    println("CACHE MODE: " + cacheMode)
+
     assert(cacheMode == "pull" || cacheMode == "push", "You must specify push or pull as a caching mode")
-    val cacheInterval = if(args(2) == "push") args(3).toInt else null.asInstanceOf[Int] // FYI We want this NullPointer Exception if we get it
+    val cacheInterval = if (args(2) == "push") args(3).toInt else null.asInstanceOf[Int] // FYI We want this NullPointer Exception if we get it
 
-    implicit  val timeout = Timeout(600.seconds)
+    implicit val timeout = Timeout(600.seconds)
 
-    val system = ActorSystem(s"frontend-system", ConfigFactory.load("frontend"))
+    val system = ActorSystem(s"frontend-system", ConfigFactory.load("frontend.conf"))
+    system.actorOf(ConcreteDB(Seq("Rome", "Gaul"), Seq("Swimming", "Tennis"), 1), "db")
 
     val db = Await.result(system.actorSelection(remote + "/user/db").resolveOne(), 600.seconds)
 
     val frontend = system.actorOf(FrontendManager.props(numServers, cacheMode, db), "frontend-manager") // todo make possible to move to multiple machines
 
-    if(cacheMode == "pull") {
-      system.scheduler.schedule(3.seconds, cacheInterval.seconds)(() => {frontend ! Broadcast(InvalidateCache)})
+    if (cacheMode == "pull") {
+      system.scheduler.schedule(3.seconds, cacheInterval.seconds)(() => {
+        frontend ! Broadcast(InvalidateCache)
+      })
     }
+
+    val client1 = new TabletClient(AddressFromURIString(remote))
+    client1.register(frontend)
   }
 }
 /*
