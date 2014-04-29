@@ -22,7 +22,7 @@ case class UnknownEvent(eventName: String, initTime:Long)
  * update to the appropriate EventSubscription record.
  */
 class Event(val name:String) {
-  private var score:String = ""
+  private var score:String = "No Score Yet"
 
   def setScore(newScore:String) {
     score = newScore

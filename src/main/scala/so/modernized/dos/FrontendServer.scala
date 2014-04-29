@@ -69,7 +69,6 @@ trait FrontendServer extends SubclassableActor {
   def dbPath: ActorRef
 }
 
-
 trait CachingFrontend extends FrontendServer with SubclassableActor {
   protected val eventCache = mutable.HashMap[String, EventScore]()
   protected val medalCache = mutable.HashMap[String, MedalTally]()
@@ -88,8 +87,8 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
     case DBResponse(response, routee, _) => {
       println("%s received %s from %s, routing to %s".format(context.self, response, sender(), routee))
       response match {
-        case TeamMessage(team, message) => medalCache.put(team, message.asInstanceOf[MedalTally])
-        case EventMessage(event, message) => eventCache.put(event, message.asInstanceOf[EventScore])
+        case MedalTally(team, g, s, b, time) => medalCache.put(team, MedalTally(team, g, s, b, time))
+        case EventScore(eventName, score, time) => eventCache.put(eventName, EventScore(eventName, score, time))
       }
       routee ! TimestampedResponse(System.currentTimeMillis(), response)
     }
@@ -128,7 +127,7 @@ object FrontendServer {
 
 object Tester {
   def main(args: Array[String]): Unit = {
-    val remote = "akka.tcp://frontend-system@127.0.0.1:2552"
+    val remote = "akka.tcp://frontend-system@127.0.0.1:2551"
     val numServers = args(1).toInt
     val cacheMode = args(2).toLowerCase
 
@@ -154,8 +153,11 @@ object Tester {
       })
     }
 
-    val client1 = new TabletClient(AddressFromURIString(remote))
+    val client1 = new TabletClient(AddressFromURIString(remote), "frontend-system/user/frontend-manager/frontend-1")
     client1.register(frontend)
+    Thread.sleep(500)
+    client1.getScore("Swimming")
+    client1.getMedalTally("Rome")
   }
 }
 /*

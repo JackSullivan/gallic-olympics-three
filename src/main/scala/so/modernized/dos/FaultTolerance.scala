@@ -48,7 +48,6 @@ trait FaultManager extends SubclassableActor {
     case RegisterTablet => {
       val serverRef = pickServer
       allocation(serverRef.path.name) += sender()
-      println(serverRef.path.name)
       sender ! Registration(serverRef)
     }
   }

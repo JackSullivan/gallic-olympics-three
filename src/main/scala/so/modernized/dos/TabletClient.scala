@@ -23,10 +23,7 @@ class TabletClient(remoteAddress: Address, serverName:String = "frontend") {
 
   println(s"Connecting to remote server at $remote")
 
-  val server = Await.result(system.actorSelection(remote + serverName).resolveOne(600.seconds), 600.seconds)
-
-  private val actor = system.actorOf(TabletActor(server)) //todo resolve nonsense here
-
+  private val actor = system.actorOf(Props[TabletActor], "tablet-actor") //todo resolve nonsense here
 
   def register(frontend: ActorRef) = {
     frontend.tell(RegisterTablet, actor)
@@ -40,12 +37,10 @@ class TabletClient(remoteAddress: Address, serverName:String = "frontend") {
   }
 }
 
-object TabletActor {
-  def apply(server:ActorRef) = Props(new TabletActor(server))
-}
+class TabletActor extends Actor {
 
-class TabletActor(var server:ActorRef) extends Actor {
-  
+  var server = null.asInstanceOf[ActorRef]
+
   def receive: Actor.Receive = {
 
     case TimestampedResponse(timestamp, response) => response match {
@@ -72,8 +67,8 @@ class TabletActor(var server:ActorRef) extends Actor {
       Await.result(newServer ? RegisterTablet, 600.seconds).asInstanceOf[Registered.type]
       server = newServer
     }
-    case em:EventMessage => server ! em
-    case tm:TeamMessage => server ! tm
+    case em: EventMessage=> {println("SERVER PATH: " + server.path); println(em); server ! ClientRequest(em)}
+    case tm:TeamMessage => server ! ClientRequest(tm)
     case Registration(serverRef) => server = serverRef
   }
 }
