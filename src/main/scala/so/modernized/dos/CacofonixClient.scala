@@ -21,7 +21,7 @@ class CacofonixClient(olympicsAddress: Address) {
 
   implicit val timeout = Timeout(600.seconds)
 
-  val system = ActorSystem("client", ConfigFactory.load("cacofonix"))
+  val system = ActorSystem("cacofonix", ConfigFactory.load("cacofonix"))
   val remote = olympicsAddress.toString
 
   println(s"Connecting to remote server at $remote")
