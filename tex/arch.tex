@@ -1,0 +1,188 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{enumerate}
+\usepackage{fullpage}
+\begin{document}
+\title{LAB 3}
+\author{Jack Sullivan and Ari Kobren}
+\maketitle
+
+\section{Main Components}
+\label{sec:main}
+Like the last assignment, our architecture revolved around three
+components: a \emph{DBServer} and 2 \emph{FrontendServer}s.  However,
+to manage fault tolerance, we also implemented a
+\emph{FrontendManager} that helped keep track of which servers were
+up.
+
+\subsection{FrontendManager}
+\label{sec:manager}
+Unlike in the previous assignment, we no longer have a
+\emph{RequestRouter} that evenly distributes requests made by
+\emph{TableClient}s.  Instead, we have implemented a
+\emph{FrontendManager} that watches both \emph{FronendServer}s and
+also assigns clients to communicate with particular servers.
+
+
+
+
+To make it easy to interact with these three components, we have also
+included a \emph{RequestRouter}.  This is a single router node that
+accepts requests from all clients and evenly distributes them. The
+\emph{RequestRouter} supervises 5 \emph{RequestWorkers} each of whom
+is arbitrarily assigned a \emph{FrontEndServer}. When the
+\emph{RequestRouter} receives a standard message, it distributes the
+message to one of its workers who forwards it to the appropriately
+(effectively load balancing). The load balacing follows a round-robin
+task assignment schedule.  The \emph{RequestRouter} can also accept
+\emph{DBWrite} messages from the \emph{CacafonixClient} (see previous
+submission).  When it receives a \emph{DBWrite} message, the router
+directly forwards the messages to one of the \emph{FrontEndServer}s.
+
+\subsection{Leader Election}
+\label{subsec:leader}
+
+\subsection{Clock Synchronization}
+\label{subsec:sync}
+
+\subsection{Vector Clocks}
+\label{subsec:vector}
+We implement causally ordered messages using vector clocks.  To do
+this, both front-end servers and the back-end server are able to
+accept \emph{SendInOrder} messages (each of which wraps a single
+\emph{payload} message).  When a server receives a \emph{SendInOrder}
+message, the server updates its clock, extracts the payload and wraps
+it, along with it's own vector clock, in a new \emph{TimedMessage}
+message.  The \emph{TimedMessage} is then broadcast to all of the
+other servers.
+
+When a server receives a \emph{TimedMessage} it adds that message to
+its internal message queue. After that, the server begins trying to
+process all of the messages in its queue.  To maintain a causal
+ordering, the server, $s_l$, will only process a \emph{TimedMessage},
+$\mathcal{M}$, from server, $s_r$, if
+\begin{align*}
+ \forall i \ne r \quad \mathcal{C}[i] \ge \mathcal{M}[i] \\
+ \mathcal{C}[r] = \mathcal{M}[r] - 1
+\end{align*}
+
+This means that a server will only process a message if it has
+received all other messages from that sender and at least all messages
+that sender has received from everyone else.  If the server cannot
+find a valid message to process, it waits for the next message. In
+this way, we make the assumption that the servers will all receive all
+messages (however, the messages may be out of causal order).
+
+To process a message, a server simply unwraps the payload of a
+\emph{TimedMessage} and processes it normally.
+
+\subsection{Previously Built Components}
+With our modular design, we were able to easily incorporate components
+(messages and classes) that we built for Lab 1.  Specifically, we used
+(and slightly modified): \emph{EventRoster}, \emph{TeamRoster},
+\emph{Event}, \emph{EventMessage}, \emph{CacofonixListener},
+\emph{EventSubscription}, \emph{MedalTally}, \emph{TabletClients}
+and \emph{EventScore}.
+
+\section{System Runtime Workflow}
+We start our system by running two \emph{FrontEndServer}s and the
+\emph{DBServer} all on different processes.  We also start a process
+for \emph{CacafonixClient} and $n$ \emph{TabletClients}.  When the system
+fully comes up, we run leader election (Section ~\ref{subsec:leader})
+and clock synchronization (Section ~\ref{subsec:sync}).
+
+The clients continually send \emph{EventScore} and \emph{MedalTally}
+requests as in the previous assignment. As before, clients receive
+responses to their requests and print them out. The difference is now
+all of these requests are sent to the \emph{RequestRouter} which
+forwards the requests to the \emph{FrontEndServer}s who timestamp the
+messages (i.e. wrap in \emph{TimedMessage} objects).  As described
+above (Section ~\ref{subsec:vector}) the messages are causally ordered
+using vector clocks.  When the \emph{DBServer} receives these
+requests, it orders them and keeps every hundreth for the raffle.
+\emph{CacafonixClient} sends updates periodically as in the previous
+assignment.
+
+\section{Design, Bottlenecks and Potential Improvements}
+One bottleneck that we've identified in our system is the
+\emph{FrontendManager}.  The probelm with this object is that it is
+soley responsible for the two \emph{FrontendServer}s.  If the
+\emph{FrontendManager} were to go down, there would be nothing keeping
+track of the status of the two \emph{FrontendServers} (meaning that we
+would run into trouble if one of them went down).
+
+There are two ways we could fix this problem. First, we could make
+each \emph{FrontendServer} extend \emph{FrontendManager}.
+Conceptually this would translate into 3 \emph{FrontendServers} one of
+which acts as the \emph{FrontendManager} and the other two acting as
+\emph{FrontendServer}s.  Then, if any of the servers went down, our
+system could respawn that server and switch the managerial role if
+necessary.  We could use some of the logic we implemented in the last
+assignment (e.g. leader election) to pick which of the three servers
+would be the manager.
+
+A simpler solution would be to make use of Akka's \emph{Router}
+class.  This class handles fault tolerance by default.  The reason we
+didn't use this class is that we wanted to implement fault tolerance
+ourselves.  In a production setting, we'd probably make heavy use of
+the \emph{Router} class.
+
+Like last time, our \emph{FrontEndServer}s and \emph{FrontendManager}
+are single threaded.  When the system is heavily loaded, this could
+become problematic and increase average response time.  One way to
+alleviate this problem would be to multithread our servers or make use
+of Akka \emph{Router}s which operate asynchronously by default.
+
+Another potential bottleneck in our system is our method of
+load-balancing.  As the \emph{FrontendManager} recieves
+
+\section{Results}
+We ran our code using 5, 10 and 15 clients each with a rate of one
+request per .01 seconds and measured the min, max and average response
+times.
+
+\begin{tabular}{c|c|c|c}
+  NUM CLIENTS & MIN & MAX & AVG \\
+  \hline
+  5  & 0.06s & 0.33s & 0.19743s \\
+  10 & 0.05s & 0.8s  & 0.46895s \\
+  15 & 0.02s & 0.97s & 0.54663s \\
+\end{tabular}
+
+In our second experiment we ran our code using 5 clients with .01, .1
+and 0.5 seconds between requests and measured the min, max and
+average response times.
+
+\begin{tabular}{c|c|c|c}
+  REQUEST FREQ. & MIN & MAX & AVG \\
+  \hline
+  0.01s & 0.06s & 0.33s & 0.19743s \\
+  0.1s  & 0.01s & 0.22s & 0.03533s \\
+  0.5s  & 0.01s & 0.04s & 0.01343s \\
+\end{tabular}
+
+As we observe, adding more clients seems to increase average latency.
+There is a significant difference in average latency (2.4x) when we
+increase from 5 to 10 clients.  there is less of a relative difference
+when we increase to 10 clients. Surprisingly, the minimum latency
+decreases in these runs. We hypothesize that this could be due to
+other things occuring on the network while running our tests or some
+noise related to our leader elections.
+
+Also, we observe that having the clients make requests at higher
+frequencies severely affects the latency.  As we flood the network
+with more requests, things drastically slow down.  When we cut our
+between request wait time by 5 (from .5s to .1s) we experience a 3x
+average latency increase (3x slower to get a response).  When we again
+reduce our wait time by a factor of 10 (from .1s to .01s) we see a
+5.5x slow down.
+
+\section{Software}
+Like Lab 1 and 2, we've made extensive use of the Akka \emph{actors}
+library.  This library provides a hierarchical message passing
+architecture for the Scala programming language.
+
+\section{How to Run}
+
+\end{document}
