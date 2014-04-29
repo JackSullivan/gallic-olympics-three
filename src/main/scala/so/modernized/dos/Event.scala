@@ -24,7 +24,10 @@ case class UnknownEvent(eventName: String, initTime:Long)
 class Event(val name:String) {
   private var score:String = "No Score Yet"
 
-  def setScore(newScore:String) {
+  var lastUpdated = 0L
+
+  def setScore(newScore:String, updateTime:Long) {
+    lastUpdated = updateTime
     score = newScore
   }
   def getScore(initTime:Long) = EventScore(name, score, initTime)
@@ -45,10 +48,14 @@ class EventRoster(eventNames:Iterable[String]) extends Actor {
   val events = eventNames.map(name => name -> new Event(name)).toMap
 
   def receive: Actor.Receive = {
-    case DBWrite(EventMessage(eventName, SetEventScore(newScore, _))) => events.get(eventName) match {
+    case DBWrite(EventMessage(eventName, SetEventScore(newScore, updateTime))) => events.get(eventName) match {
       case Some(event) => {
-        println("Updated %s score to %s".format(event.name, newScore))
-        event.setScore(newScore)
+        if(event.lastUpdated < updateTime) {
+          println("Updated %s score to %s".format(event.name, newScore))
+          event.setScore(newScore, updateTime)
+        } else {
+          println("Didn't update score for %s because submission was stale. (last updated: %s, submit time: %s".format(event, event.lastUpdated, updateTime))
+        }
       }
       case None => println("Received invalid score update from Cacofonix: %s".format(eventName))
     }

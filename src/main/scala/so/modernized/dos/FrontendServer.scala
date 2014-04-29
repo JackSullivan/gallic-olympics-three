@@ -40,10 +40,33 @@ trait WriteMessage
  * to the backend DBServer process, wrapping in such a way as to preserve information about
  * both the server through which it came and the original client to route it to.
  */
+/*
 object FrontendManager {
   def props(numServers: Int, cacheType: String, dbPath: ActorRef) = Props(new FrontendManager(numServers, cacheType, dbPath))
 }
+*/
+trait FrontendManager extends SubclassableActor {
+  def numServers:Int
+  def dbPath:ActorRef
+  /*
+  (0 until numServers).foreach {
+    index =>
+      cacheType match {
+        case "push" => {
+          context.actorOf(FrontendServer.pushing(dbPath, index), s"frontend-$index")
+        }
+        case "pull" => {
+          context.actorOf(FrontendServer.pulling(dbPath, index), s"frontend-$index")
+        }
+      }
+  }
+  */
+  addReceiver {
+    case Broadcast(message) => context.children.foreach(_ ! message)
+  }
 
+}
+/*
 class FrontendManager(numServers: Int, cacheType: String, dbPath: ActorRef) extends SubclassableActor with FaultManager {
 
   def deathThreshold = 2000L
@@ -66,7 +89,7 @@ class FrontendManager(numServers: Int, cacheType: String, dbPath: ActorRef) exte
     case Broadcast(message) => context.children.foreach(_ ! message)
   }
 }
-
+*/
 
 trait FrontendServer extends SubclassableActor {
   def dbPath: ActorRef
@@ -114,13 +137,26 @@ trait PushBasedCaching extends CachingFrontend with SubclassableActor {
 }
 
 trait PullBasedCaching extends CachingFrontend with SubclassableActor {
+  private var cacheExpiration = null.asInstanceOf[Cancellable]
+
+  def stalenessRate:Int
+
+  addPreStart{ _ =>
+    cacheExpiration = context.system.scheduler.schedule(stalenessRate.seconds, stalenessRate.seconds, self, InvalidateCache)
+  }
+
+  addPostStop{ _ =>
+    cacheExpiration.cancel()
+  }
+
   addReceiver {
     case InvalidateCache =>
       eventCache.clear()
       medalCache.clear()
+    case m:DBWrite => dbPath ! m
   }
 }
-
+/*
 object FrontendServer {
   def pulling(_dbPath: ActorRef, id: Int): Props = Props(new CachingFrontend with PullBasedCaching {
     val dbPath = _dbPath
@@ -131,10 +167,11 @@ object FrontendServer {
   })
 
 }
-
+*/
+/*
 object Tester {
   def main(args: Array[String]): Unit = {
-    val remote = "akka.tcp://frontend-system@127.0.0.1:2551"
+    val remote = args(0)
     val numServers = args(1).toInt
     val cacheMode = args(2).toLowerCase
 
@@ -184,6 +221,8 @@ object CacofonixUpdater {
     })
   }
 }
+
+*/
 /*
 object FrontendProcess {
   def main(args:Array[String]) {
