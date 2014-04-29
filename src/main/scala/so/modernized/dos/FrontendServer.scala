@@ -9,11 +9,14 @@ import scala.collection.mutable
 import ExecutionContext.Implicits.global
 import akka.routing.Broadcast
 import scala.collection.mutable.ArrayBuffer
+import scala.util.Random
 
 
 /**
  * @author John Sullivan
  */
+case class CacofonixUpdate(request: AnyRef)
+
 case class ClientRequest(request: AnyRef)
 
 case class DBWrite(message: AnyRef)
@@ -81,6 +84,10 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
         case EventMessage(event, _) if eventCache.contains(event) => sender ! TimestampedResponse(System.currentTimeMillis(), eventCache(event))
         case _ => dbPath ! DBRequest(message, sender(), context.self)
       }
+    }
+    case CacofonixUpdate(message) => {
+      println("%s received CacofonixUpdate(%s) from %s".format(context.self, message, sender()))
+      dbPath ! DBWrite(message)
     }
     case InvalidateEvent(event) => eventCache.remove(event)
     case InvalidateTeam(team) => medalCache.remove(team)
@@ -158,6 +165,23 @@ object Tester {
     Thread.sleep(500)
     client1.getScore("Swimming")
     client1.getMedalTally("Rome")
+
+  }
+}
+
+object CacofonixUpdater {
+
+  def main(args: Array[String]) {
+    val cacofonix = new CacofonixClient(Address("akka.tcp","frontend-system", "127.0.0.1",2551))
+    val teams = Seq("Rome", "Gaul")
+    val events = Seq("Swimming", "Tennis")
+    val medals = Seq(Gold, Silver, Bronze)
+    Thread.sleep(500)
+
+    (0 until 1).foreach(ind => {
+      cacofonix.incrementMedalTally(teams(Random.nextInt(teams.length)), medals(Random.nextInt(medals.length)))
+      cacofonix.setScore(events(Random.nextInt(events.length)), "ROME " + Random.nextInt() + " GAUL " + Random.nextInt())
+    })
   }
 }
 /*
