@@ -1,6 +1,6 @@
 package so.modernized.dos
 
-import akka.actor.{Cancellable, ActorSelection, ActorRef}
+import akka.actor.{Cancellable, ActorRef}
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext
@@ -15,7 +15,7 @@ case object RegisterTablet
 case object InitiateScan
 case class Registration(tablet:ActorRef)
 
-trait FaultTolerance extends FrontendServer {
+trait FaultTolerance extends SubclassableActor {
   private var sendHeartbeat: Cancellable = null
 
   addPreStart { _ =>
@@ -34,7 +34,9 @@ trait FaultTolerance extends FrontendServer {
 }
 
 trait FaultManager extends FrontendManager {
-  class ServerAllocation(val tablets:mutable.ArrayBuffer[ActorRef], var lastUpdate:Long)
+  class ServerAllocation(val tablets:mutable.ArrayBuffer[ActorRef], var lastUpdate:Long) {
+    override def toString = s"ServerAllocation($tablets, $lastUpdate)"
+  }
 
   protected val allocations = new mutable.HashMap[String, ServerAllocation]()
 
@@ -43,6 +45,7 @@ trait FaultManager extends FrontendManager {
   context.children.foreach { child =>
     allocations(child.path.name) = new ServerAllocation(new mutable.ArrayBuffer[ActorRef](), System.currentTimeMillis())
   }
+  println("Allocated children: %s".format(allocations))
 
   def pickServer:ActorRef = context.child(allocations.minBy(_._2.tablets.size)._1).get // the server with the fewest tablets
 
@@ -69,7 +72,11 @@ trait FaultManager extends FrontendManager {
 
   addReceiver{
     case Heartbeat => {
-      allocations(sender.path.name).lastUpdate = System.currentTimeMillis()
+      allocations.get(sender.path.name) match {
+        case Some(allocation) => allocation.lastUpdate = System.currentTimeMillis()
+        case None => allocations.put(sender.path.name, new ServerAllocation(new mutable.ArrayBuffer[ActorRef](), System.currentTimeMillis()))
+      }
+      //allocations(sender.path.name).lastUpdate = System.currentTimeMillis()
     }
     case InitiateScan => scanForDeath
     case RegisterTablet => {
@@ -80,42 +87,3 @@ trait FaultManager extends FrontendManager {
     }
   }
 }
-   /*
-trait FaultManager extends SubclassableActor {
-  protected val allocation = new mutable.HashMap[String, mutable.ArrayBuffer[ActorRef]]().withDefault(_ => new mutable.ArrayBuffer[ActorRef]())
-
-  protected val lastUpdates = new mutable.HashMap[String, Long]()
-
-  def deathThreshold:Long
-
-  def scanForDeath = {
-    val scanTime = System.currentTimeMillis()
-    lastUpdates.foreach{ case(server, updateTime) =>
-      if(scanTime - updateTime > deathThreshold) {
-        println("Ding DOng the %s is dead!".format(server))
-        allocation(server).foreach { tablet =>
-
-          tablet ! ServerDown(context.child(allocation.keySet.-(server).head).get)
-        }
-        allocation.remove(server)
-      }
-    }
-  }
-
-  def pickServer: ActorRef = {
-    context.child(allocation.keys.head).get
-  }
-
-  addReceiver{
-    case Heartbeat(server) => {
-      lastUpdates(server) = System.currentTimeMillis()
-    }
-    case RegisterTablet => {
-      val serverRef = pickServer
-      println("Did I get in here?")
-      allocation(serverRef.path.name) += sender()
-      sender ! Registration(serverRef)
-    }
-  }
-}
-  */

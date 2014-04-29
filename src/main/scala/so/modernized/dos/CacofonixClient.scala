@@ -28,7 +28,7 @@ class CacofonixClient(olympicsAddress: Address) {
 
   def shutdown() {system.shutdown()}
 
-  val actor = system.actorOf(Props[CacofonixActor])
+  val actor = system.actorOf(Props[CacofonixActor], "cacofonix")
 
   // This line registers the actor with a frontend server
   Await.result(system.actorSelection(remote + "/user/frontend").resolveOne(), 600.seconds).tell(RegisterTablet, actor)
@@ -42,17 +42,18 @@ class CacofonixClient(olympicsAddress: Address) {
   }
 
   def setScore(event:String, score:String) {
-    actor ! DBWrite(EventMessage(event, SetEventScore(score, System.currentTimeMillis())))
+    actor ! EventMessage(event, SetEventScore(score, System.currentTimeMillis()))
   }
 
   def incrementMedalTally(team:String, medalType:MedalType) {
-    actor ! DBWrite(TeamMessage(team, IncrementMedals(medalType, System.currentTimeMillis())))
+    actor ! TeamMessage(team, IncrementMedals(medalType, System.currentTimeMillis()))
   }
 }
 
 class CacofonixActor extends AssignableClient {
   addReceiver{
-    case m:DBWrite => server ! DBWrite
+    case m:EventMessage => server ! CacofonixUpdate(m)
+    case m:TeamMessage => server ! CacofonixUpdate(m)
   }
 }
 
@@ -63,7 +64,7 @@ object CacofonixClient {
     val teams = args(2).split('|')
     val events = args(3).split('|')
 
-    val cacofonix = new CacofonixClient(Address("akka.tcp","router", host, port))
+    val cacofonix = new CacofonixClient(Address("akka.tcp","frontend-system", host, port))
     val eventToScore = new mutable.HashMap[String, mutable.HashMap[String, Int]]
 
     events.foreach(event => eventToScore.update(event, {

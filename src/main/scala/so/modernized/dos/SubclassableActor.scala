@@ -26,7 +26,7 @@ trait SubclassableActor extends Actor {
 
   final def receive:Actor.Receive = receivers.reduce(_ orElse _)
 
-  final override def postStop(): Unit = preStarts.foreach(_.apply())
+  final override def postStop(): Unit = postStops.foreach(_.apply())
 
-  final override def preStart(): Unit = postStops.foreach(_.apply())
+  final override def preStart(): Unit = preStarts.foreach(_.apply())
 }
