@@ -13,7 +13,12 @@ trait AssignableClient extends SubclassableActor{
   var server = null.asInstanceOf[ActorRef]
 
   addReceiver{
-    case Registration(serverRef) => server = serverRef
-    case Ready => sender ! (server != null)
+    case Registration(serverRef) => {
+      println("I just go reassigned to %s".format(serverRef.path.name))
+      server = serverRef
+    }
+    case Ready => {
+      sender ! (server != null)
+    }
   }
 }

@@ -29,6 +29,8 @@ case class InvalidateTeam(team: String)
 
 case object InvalidateCache
 
+case object GetChildren
+
 trait WriteMessage
 
 /**
@@ -41,6 +43,7 @@ trait FrontendManager extends SubclassableActor {
   def dbPath:ActorRef
   addReceiver {
     case Broadcast(message) => context.children.foreach(_ ! message)
+    case GetChildren => sender ! context.children.toList
   }
 
 }

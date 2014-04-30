@@ -5,6 +5,8 @@ import scala.concurrent.Await
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
 import scala.concurrent.duration._
+import scala.util.Random
+import akka.pattern.ask
 
 /**
  * @author John Sullivan
@@ -15,7 +17,10 @@ class ConcretePushFrontendManager(val numServers:Int, val dbPath:ActorRef, val d
     context.actorOf(ConcretePushFrontend(dbPath), s"frontend-$index")
   }
   println("After creation, my children: %s".format(context.children.map(_.path.name).mkString(",")))
+
+  def childProps: Props = ConcretePushFrontend(dbPath)
 }
+
 object ConcretePushFrontendManager {
   def apply(numServers:Int, dbPath:ActorRef, deathThreshold:Long) = Props(new ConcretePushFrontendManager(numServers, dbPath, deathThreshold))
 }
@@ -27,6 +32,8 @@ object ConcretePushFrontend {
 }
 
 class ConcretePullFrontendManager(val numServers:Int, val dbPath:ActorRef, val deathThreshold:Long, stalenessRate:Int) extends FrontendManager with FaultManager {
+
+  def childProps = ConcretePullFrontend(dbPath, stalenessRate)
 
   (0 until numServers).foreach { index =>
     context.actorOf(ConcretePullFrontend(dbPath, stalenessRate), s"frontend-$index")
@@ -48,14 +55,17 @@ object ConcreteFrontend {
     val remote = args(0)
     val numServers = args(1).toInt
     val cacheMode = args(2).toLowerCase
-    val deathThreshold = args(3).toLong * 1000
+    val deathThreshold = args(3).toLong
+    val killRate = args(4).toLong
 
     println("REMOTE: " + remote)
     println("NUM SERVERS: " + numServers)
     println("CACHE MODE: " + cacheMode)
+    println("Death Threshold: " + deathThreshold)
+    println("Kill Rate:" + killRate)
 
     assert(cacheMode == "pull" || cacheMode == "push", "You must specify push or pull as a caching mode")
-    val cacheInterval = if (args(2) == "pull") args(4).toInt else null.asInstanceOf[Int] // FYI We want this NullPointer Exception if we get it
+    val cacheInterval = if (args(2) == "pull") args(5).toInt else null.asInstanceOf[Int] // FYI We want this NullPointer Exception if we get it
 
     implicit val timeout = Timeout(600.seconds)
 
@@ -72,43 +82,21 @@ object ConcreteFrontend {
     }
 
     val frontend = system.actorOf(frontendProps, "frontend")
-  }
-}
 
-/*
-object ConcreteFrontend {
-  def main(args:Array[String]) {
-    val remote = args(0)
-    val numServers = args(1).toInt
-    val cacheMode = args(2).toLowerCase
 
-    println("REMOTE: " + remote)
-    println("NUM SERVERS: " + numServers)
-    println("CACHE MODE: " + cacheMode)
+    if(killRate != 0) {
+      while(true) {
+        println("Killing at rate: %d".format(killRate))
+        Thread.sleep(killRate)
+        val children = Await.result(frontend ? GetChildren, 600.seconds).asInstanceOf[List[ActorRef]]
+        if(children.nonEmpty) {
+          val toKill = Random.nextInt(children.size)
+          println("Got children: %s".format(children))
+          println("Killing %s".format(children(toKill).path.name))
+          system.stop(children(toKill))
 
-    assert(cacheMode == "pull" || cacheMode == "push", "You must specify push or pull as a caching mode")
-    val cacheInterval = if (args(2) == "push") args(3).toInt else null.asInstanceOf[Int] // FYI We want this NullPointer Exception if we get it
-
-    implicit val timeout = Timeout(600.seconds)
-
-    val system = ActorSystem("frontend-system", ConfigFactory.load("frontend.conf"))
-    system.actorOf(ConcreteDB(Seq("Rome", "Gaul"), Seq("Swimming", "Tennis"), 1), "db")
-
-    val db = Await.result(system.actorSelection(remote + "/user/db").resolveOne(), 600.seconds)
-
-    val frontendProps = if(cacheMode == "pull") {
-      ConcretePullFrontend(db, cacheInterval)
-    } else if(cacheMode == "push") {
-      ConcretePushFrontend(db)
-    } else {
-      throw new IllegalArgumentException("Invalid cache mode: %s".format(cacheMode))
+        }
+      }
     }
-
-    val frontend = system.actorOf(frontendProps, "frontend-manager") // todo make possible to move to multiple machines
-
-    val client1 = new TabletClient(AddressFromURIString(remote))
-    client1.getScore("Swimming")
-    client1.getMedalTally("Rome")
   }
 }
-*/
