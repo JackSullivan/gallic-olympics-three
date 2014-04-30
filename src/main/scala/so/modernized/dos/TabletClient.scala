@@ -7,12 +7,11 @@ import com.typesafe.config.ConfigFactory
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Random
-import so.modernized.dos.Registered
 
 /**
  * @author John Sullivan
  */
-class TabletClient(remoteAddress: Address, serverName:String = "frontend") {
+class TabletClient(remoteAddress: Address) {
 
   implicit val timeout = Timeout(600.seconds)
 
@@ -23,10 +22,16 @@ class TabletClient(remoteAddress: Address, serverName:String = "frontend") {
 
   println(s"Connecting to remote server at $remote")
 
-  private val actor = system.actorOf(Props[TabletActor], "tablet-actor") //todo resolve nonsense here
+  private val actor = system.actorOf(Props[TabletActor], "tablet-actor")
 
-  def register(frontend: ActorRef) = {
-    frontend.tell(RegisterTablet, actor)
+  // This line registers the actor with a frontend server
+  Await.result(system.actorSelection(remote + "/user/frontend").resolveOne(), 600.seconds).tell(RegisterTablet, actor)
+
+  var actorReady = false
+
+  while (!actorReady) {
+    actorReady = Await.result(actor ? Ready, 600.seconds).asInstanceOf[Boolean]
+    Thread.sleep(200)
   }
 
   def getScore(event:String) {
@@ -37,6 +42,33 @@ class TabletClient(remoteAddress: Address, serverName:String = "frontend") {
   }
 }
 
+class TabletActor extends AssignableClient {
+  addReceiver{
+    case TimestampedResponse(timestamp, response) => response match {
+      case EventScore(event, score, initTime) => {
+        val latency = (System.currentTimeMillis() - initTime)/1000.0
+        println("Event: %s, Score: %s. Timestamped %d. Response took %.2f secs".format(event, score, timestamp, latency))
+      }
+      case MedalTally(team, gold, silver, bronze, initTime) => {
+        val latency = (System.currentTimeMillis() - initTime)/1000.0
+        println("Team: %s, Gold: %s, Silver: %s, Bronze: %s. Timestamped %d. Response took %.2f secs".format(team, gold, silver, bronze, timestamp, latency))
+      }
+      case UnknownEvent(eventName, initTime) => {
+        val latency = (System.currentTimeMillis() - initTime)/1000.0
+
+        println("There are not %s competitions at these olympics. Timestamped %d. Response took %.2f secs".format(eventName, timestamp, latency))
+      }
+      case UnknownTeam(teamName, initTime) => {
+        val latency = (System.currentTimeMillis() - initTime)/1000.0
+        println("%s is not participating in these olympics. Timestamped %d. Response took %.2f secs".format(teamName, timestamp, latency))
+      }
+    }
+    case em: EventMessage=> {println("SERVER PATH: " + server.path); println(em); server ! ClientRequest(em)}
+    case tm:TeamMessage => server ! ClientRequest(tm)
+  }
+}
+
+/*
 class TabletActor extends Actor {
 
   var server = null.asInstanceOf[ActorRef]
@@ -62,17 +94,19 @@ class TabletActor extends Actor {
         println("%s is not participating in these olympics. Timestamped %d. Response took %.2f secs".format(teamName, timestamp, latency))
       }
     }
+      /*
     case ServerDown(newServer) => {
       implicit val t = Timeout(600.seconds)
       Await.result(newServer ? RegisterTablet, 600.seconds).asInstanceOf[Registered.type]
       server = newServer
     }
+    */
     case em: EventMessage=> {println("SERVER PATH: " + server.path); println(em); server ! ClientRequest(em)}
     case tm:TeamMessage => server ! ClientRequest(tm)
     case Registration(serverRef) => server = serverRef
   }
 }
-
+*/
 object Remote {
   def main(args:Array[String]) {
     val a = Address("akka","olympics", "127.0.0.1",2552)

@@ -23,9 +23,12 @@ class Team(val name:String) {
   private var silver:Int = 0
   private var bronze:Int = 0
 
+  var lastUpdated = 0L
+
   def tally(initTime:Long) = MedalTally(name, gold, silver, bronze, initTime)
 
-  def increment(mType:MedalType) {
+  def increment(mType:MedalType, updatedTime:Long) {
+    lastUpdated = updatedTime
     mType match {
       case Gold => gold += 1
       case Silver => silver += 1
@@ -51,8 +54,12 @@ class TeamRoster(teamNames:Iterable[String]) extends Actor {
   override def receive: Actor.Receive = {
     case DBWrite(TeamMessage(teamName, IncrementMedals(medalType, initTime))) => teams.get(teamName) match {
       case Some(team) => {
-        println("Updated %s Medal count by %s".format(team.name, medalType.toString))
-        team.increment(medalType)
+        if(team.lastUpdated < initTime) {
+          println("Updated %s Medal count by %s".format(team.name, medalType.toString))
+          team.increment(medalType, initTime)
+        } else {
+          println("Didn't update medal count for %s because submission was stale. (last updated: %s, submit time: %s".format(team, team.lastUpdated, initTime))
+        }
       }
       case None => println("Received invalid score update from Cacofonix: %s".format(teamName))
     }

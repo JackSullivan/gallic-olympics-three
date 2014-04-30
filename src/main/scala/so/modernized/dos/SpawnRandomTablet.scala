@@ -15,6 +15,6 @@ object SpawnRandomTablet {
     val teams = args(4).split('|')
     val events = args(5).split('|')
 
-    TabletClient.randomTabletClient(teams, events, Address("akka.tcp", "router", add, port), freq, times)(Random)
+    TabletClient.randomTabletClient(teams, events, Address("akka.tcp", "frontend-system", add, port), freq, times)(Random)
   }
 }
