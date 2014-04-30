@@ -34,9 +34,7 @@ case object GetChildren
 trait WriteMessage
 
 /**
- * The FrontEndServer trait routes read requests from table clients (and from Cacofonix
- * to the backend DBServer process, wrapping in such a way as to preserve information about
- * both the server through which it came and the original client to route it to.
+ * The FrontendManager handles creation of individual frontend servers, and routes broadcast messages.
  */
 trait FrontendManager extends SubclassableActor {
   def numServers:Int
@@ -52,6 +50,10 @@ trait FrontendServer extends SubclassableActor {
   def dbPath: ActorRef
 }
 
+/**
+ * The CachingFrontend stores cache information for either a pull or push based caching system,
+ * and handles loading to and serving from the cache based on client requests.
+ */
 trait CachingFrontend extends FrontendServer with SubclassableActor {
   protected val eventCache = mutable.HashMap[String, EventScore]()
   protected val medalCache = mutable.HashMap[String, MedalTally]()
@@ -64,10 +66,6 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
         case EventMessage(event, _) if eventCache.contains(event) => sender ! TimestampedResponse(System.currentTimeMillis(), eventCache(event))
         case _ => dbPath ! DBRequest(message, sender(), context.self)
       }
-    }
-    case CacofonixUpdate(message) => {
-      println("%s received CacofonixUpdate(%s) from %s".format(context.self, message, sender()))
-      dbPath ! DBWrite(message)
     }
     case InvalidateEvent(event) => eventCache.remove(event)
     case InvalidateTeam(team) => medalCache.remove(team)
@@ -82,17 +80,25 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
   }
 }
 
+/**
+ * PushBasedCaching extends a CachingFrontend with a system to invalidate messages as
+ * new information comes in.
+ */
 trait PushBasedCaching extends CachingFrontend with SubclassableActor {
   addReceiver {
-    case m: DBWrite =>
-      dbPath ! m
-      m.message match {
+    case CacofonixUpdate(message) =>
+      dbPath ! DBWrite(message)
+      message match {
         case EventMessage(event, _) => context.parent ! Broadcast(InvalidateEvent(event))
         case TeamMessage(team, _) => context.parent ! Broadcast(InvalidateTeam(team))
       }
   }
 }
 
+/**
+ * PullBasedCaching extends a CachingFrontent with a system to periodically empty the cache
+ * at a predefined stateness rate to ensure that out-of-date information is not served.
+ */
 trait PullBasedCaching extends CachingFrontend with SubclassableActor {
   private var cacheExpiration = null.asInstanceOf[Cancellable]
 
@@ -110,6 +116,6 @@ trait PullBasedCaching extends CachingFrontend with SubclassableActor {
     case InvalidateCache =>
       eventCache.clear()
       medalCache.clear()
-    case m:DBWrite => dbPath ! m
+    case CacofonixUpdate(message) => dbPath ! DBWrite(message)
   }
 }

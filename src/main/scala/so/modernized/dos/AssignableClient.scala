@@ -9,6 +9,9 @@ import ExecutionContext.Implicits.global
  */
 case object Ready
 
+/**
+ * An assignable client is a client that can update the server to which it sends messages by receiving a registration message
+ */
 trait AssignableClient extends SubclassableActor{
   var server = null.asInstanceOf[ActorRef]
 

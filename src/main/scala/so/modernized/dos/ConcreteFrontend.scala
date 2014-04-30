@@ -1,6 +1,6 @@
 package so.modernized.dos
 
-import akka.actor.{ActorSystem, AddressFromURIString, Props, ActorRef}
+import akka.actor.{ActorSystem, Props, ActorRef}
 import scala.concurrent.Await
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
@@ -10,6 +10,9 @@ import akka.pattern.ask
 
 /**
  * @author John Sullivan
+ *
+ * These concrete objects and classes simply mix together the existing logic in FrontendManager,
+ * Caching handlers, and fault tolerance into concrete instantiations.
  */
 class ConcretePushFrontendManager(val numServers:Int, val dbPath:ActorRef, val deathThreshold:Long) extends FrontendManager with FaultManager {
 

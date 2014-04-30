@@ -5,6 +5,8 @@ import scala.collection.mutable
 
 /**
  * @author John Sullivan
+ * This actor allows partial implementation of pre and post hooks and the actor's
+ * receive method to make it easy to implement actors in multiple places and have their functionality compose.
  */
 trait SubclassableActor extends Actor {
 

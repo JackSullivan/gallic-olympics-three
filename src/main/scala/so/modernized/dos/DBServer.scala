@@ -5,8 +5,9 @@ import com.typesafe.config.ConfigFactory
 
 /**
  * @author John Sullivan
+ *
+ * The DBServer routes reads and writes coming in from the front end to appropriate teams and events.
  */
-
 trait DBServer extends SubclassableActor {
   def teams:ActorRef
   def events:ActorRef
