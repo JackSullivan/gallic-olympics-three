@@ -17,92 +17,119 @@ to manage fault tolerance, we also implemented a
 up.
 
 \subsection{FrontendManager}
-\label{sec:manager}
+\label{subsec:manager}
 Unlike in the previous assignment, we no longer have a
 \emph{RequestRouter} that evenly distributes requests made by
 \emph{TableClient}s.  Instead, we have implemented a
-\emph{FrontendManager} that watches both \emph{FronendServer}s and
-also assigns clients to communicate with particular servers.
+\emph{FrontendManager} that watches both \emph{FronendServer}s in case
+they go down and also assigns \emph{TabletClient}s to communicate with
+particular servers.  Specifically, both \emph{FrontendServer}s
+repeatedly send the \emph{FrontendManager} \emph{Heartbeat} messages
+at a prespecified interval.  Every interval, the
+\emph{FrontendManager} scans the \emph{Heartbeat} messages it has
+recently received to ensure that the \emph{FrontendServer}s are
+alive.  If it hasn't received a message from a \emph{FrontendServer},
+it assumes that server is dead and diverts all clients of that server
+to the other living server.  Once the dead server comes back online,
+the \emph{FrontendManager} reassigns clients to that server.
 
+\subsection{Caching Frontend}
+\label{subsec:caching}
+A \emph{CachingFrontend} describes a modification we've made to our
+existing \emph{FrontendServer} object. As the name suggests, the
+\emph{CachingFrontend} extends a server by allowing it to cache by
+either using pull or push based approaches.  For both the push and
+pull based communication we implemented caching in both of the
+\emph{FrontendServer}s.  In our implementation, we keep tables of the
+most recently queried scores and medal tallys.  This way, when a
+client makes a query, we can respond quickly if the information is in
+the table.  In both push and pull based caching, this is implemented
+by listening for \emph{DBResponse} messages from the \emph{DBServer}.
+Upon receiving a \emph{DBResponse} each \emph{FrontendServer} stores
+the response (either a medal tally or event score) in its cache and
+forwards the message onto the appropriate client.
 
+\subsubsection{Push Based Caching}
+\label{subsubsec:push}
+In push based caching, each time a \emph{FrontendServer} receives an
+update from \emph{Cacofonix} it forwards the message to the
+\emph{DBServer} and sends an \emph{InvalidateEvent} or an
+\emph{InvalidateTeam} message to the \emph{FrontendManager}.  When the
+\emph{FrontendManager} receives one of these messages, it broadcasts
+the message to both of the \emph{FrontendServer}s (this is so that if
+there were more than 2 \emph{FrontendServer}s our system would still
+operate appropriately).  When the \emph{FrontendServer} receives the
+\emph{InvalidateEvent} or \emph{InvalidateTeam} message, it clears the
+corresponding entry in its cache.
 
+\subsubsection{Pull Based Caching}
+\label{subsubsec:pull}
+In pull based caching, each \emph{FrontendServer} is responsible for
+keeping its cache up to date.  To do this, each \emph{FrontendServer}
+periodically sends an \emph{InvalidateCache} message to the
+\emph{FrontendManager} which, in turn, broadcasts the
+\emph{InvalidateCache} message to all \emph{FrontendServer}s.  When a
+\emph{FrontendServer} receives an invalidate cache message, it clears
+its medal cache and its event cache.  When the cache is cleared, each
+client query will require the \emph{FrontendServer} to query the
+\emph{DBServer} and repopulate its own cache.
 
-To make it easy to interact with these three components, we have also
-included a \emph{RequestRouter}.  This is a single router node that
-accepts requests from all clients and evenly distributes them. The
-\emph{RequestRouter} supervises 5 \emph{RequestWorkers} each of whom
-is arbitrarily assigned a \emph{FrontEndServer}. When the
-\emph{RequestRouter} receives a standard message, it distributes the
-message to one of its workers who forwards it to the appropriately
-(effectively load balancing). The load balacing follows a round-robin
-task assignment schedule.  The \emph{RequestRouter} can also accept
-\emph{DBWrite} messages from the \emph{CacafonixClient} (see previous
-submission).  When it receives a \emph{DBWrite} message, the router
-directly forwards the messages to one of the \emph{FrontEndServer}s.
+\subsection{Fault Tolerance}
+We have also implemented some fault tolerant characteristics which are
+programatically separated from caching but, in implementation, get
+mixed into the frontend.  The fault tolerance characteristic requires
+a frontend to periodically send heartbeat messages to the
+\emph{FrontendManager}.
 
-\subsection{Leader Election}
-\label{subsec:leader}
+\subsection{TabletClients and Cacofonix}
+\label{subsec:client}
+As before, \emph{TabletClient}s can connect to the system and request
+a team's medal tally and also the score of an ongoing event.  However,
+now, when a client wants to begin receiving updates, it must send a
+\emph{Register} message to the \emph{FrontendManager}.  When the
+manager receives this message, it allocates the client to a particular
+\emph{FrontendServer} and sends the client that server's address.
+From then on, the client requests scores from that server.  This
+communication mechanism with the manager is important for fault
+tolerance because if the server a client is communicating with goes
+down, the \emph{FrontendManager} will know and send the client a new
+frontend with which to communicate.
 
-\subsection{Clock Synchronization}
-\label{subsec:sync}
-
-\subsection{Vector Clocks}
-\label{subsec:vector}
-We implement causally ordered messages using vector clocks.  To do
-this, both front-end servers and the back-end server are able to
-accept \emph{SendInOrder} messages (each of which wraps a single
-\emph{payload} message).  When a server receives a \emph{SendInOrder}
-message, the server updates its clock, extracts the payload and wraps
-it, along with it's own vector clock, in a new \emph{TimedMessage}
-message.  The \emph{TimedMessage} is then broadcast to all of the
-other servers.
-
-When a server receives a \emph{TimedMessage} it adds that message to
-its internal message queue. After that, the server begins trying to
-process all of the messages in its queue.  To maintain a causal
-ordering, the server, $s_l$, will only process a \emph{TimedMessage},
-$\mathcal{M}$, from server, $s_r$, if
-\begin{align*}
- \forall i \ne r \quad \mathcal{C}[i] \ge \mathcal{M}[i] \\
- \mathcal{C}[r] = \mathcal{M}[r] - 1
-\end{align*}
-
-This means that a server will only process a message if it has
-received all other messages from that sender and at least all messages
-that sender has received from everyone else.  If the server cannot
-find a valid message to process, it waits for the next message. In
-this way, we make the assumption that the servers will all receive all
-messages (however, the messages may be out of causal order).
-
-To process a message, a server simply unwraps the payload of a
-\emph{TimedMessage} and processes it normally.
+\emph{Cacofonix} must also register with the \emph{FrontendManager} to
+determine which frontend it will be communicating with. If the server
+\emph{Cacofonix} is communicating with goes down this mechanism will
+send \emph{Cacofonix} a new frontend with which to communicate so that
+this communication is fault tolerant.
 
 \subsection{Previously Built Components}
-With our modular design, we were able to easily incorporate components
-(messages and classes) that we built for Lab 1.  Specifically, we used
-(and slightly modified): \emph{EventRoster}, \emph{TeamRoster},
-\emph{Event}, \emph{EventMessage}, \emph{CacofonixListener},
-\emph{EventSubscription}, \emph{MedalTally}, \emph{TabletClients}
-and \emph{EventScore}.
+We were able to incorporate components (messages and classes) that we
+built for Lab 1 and Lab 2.  Specifically, we used (and slightly
+modified): \emph{EventRoster}, \emph{TeamRoster}, \emph{Event},
+\emph{EventMessage}, \emph{EventSubscription}, \emph{MedalTally},
+\emph{TabletClients} and \emph{EventScore}.
 
 \section{System Runtime Workflow}
-We start our system by running two \emph{FrontEndServer}s and the
-\emph{DBServer} all on different processes.  We also start a process
-for \emph{CacafonixClient} and $n$ \emph{TabletClients}.  When the system
-fully comes up, we run leader election (Section ~\ref{subsec:leader})
-and clock synchronization (Section ~\ref{subsec:sync}).
+We start our system by starting up the \emph{DBServer}, the
+\emph{FrontendManager} and two \emph{FrontendServer}s as seperate
+processes.  We also start a process for \emph{Cacafonix} and $n$
+\emph{TabletClients}.  These clients are responsible for sending
+registration requests to the \emph{FrontendManager} and then being
+assigned a frontend with which to communicate (Section
+~\ref{subsec:client}).
 
-The clients continually send \emph{EventScore} and \emph{MedalTally}
-requests as in the previous assignment. As before, clients receive
-responses to their requests and print them out. The difference is now
-all of these requests are sent to the \emph{RequestRouter} which
-forwards the requests to the \emph{FrontEndServer}s who timestamp the
-messages (i.e. wrap in \emph{TimedMessage} objects).  As described
-above (Section ~\ref{subsec:vector}) the messages are causally ordered
-using vector clocks.  When the \emph{DBServer} receives these
-requests, it orders them and keeps every hundreth for the raffle.
-\emph{CacafonixClient} sends updates periodically as in the previous
-assignment.
+Clients periodically send \emph{EventScore} and \emph{MedalTally}
+requests as in the previous assignment. \emph{FrontendServer}s respond
+to their respective clients using a caching strategy that was
+specified via the command line (Section ~\ref{sec:caching}). When a
+client receives a response, it prints that response to the screen.
+
+We also bring our \emph{FrontendServer}s down periodically to test
+faul tolerance. This operates using \emph{Heartbeat} messages and
+communication with the \emph{FrontendManage} (Section
+~\ref{sec:manager}).
+
+\emph{Cacofonix} sends score and medeal tally updates just like in the
+previous assignments.
 
 \section{Design, Bottlenecks and Potential Improvements}
 One bottleneck that we've identified in our system is the
@@ -138,51 +165,56 @@ Another potential bottleneck in our system is our method of
 load-balancing.  As the \emph{FrontendManager} recieves
 
 \section{Results}
-We ran our code using 5, 10 and 15 clients each with a rate of one
-request per .01 seconds and measured the min, max and average response
-times.
+We ran our code using 5 clients making 10, 100 and 500 requests per
+second and measured the min, max and average response
+times when using \emph{push based caching}.
 
 \begin{tabular}{c|c|c|c}
-  NUM CLIENTS & MIN & MAX & AVG \\
+  REQ Per SEC & MIN & MAX & AVG \\
   \hline
-  5  & 0.06s & 0.33s & 0.19743s \\
-  10 & 0.05s & 0.8s  & 0.46895s \\
-  15 & 0.02s & 0.97s & 0.54663s \\
+  10  & 0.07s & 1.44s & 0.99739s \\
+  100 & 0.01s & 10.2s & 4.94568s \\
+  500 & 0.01s & 50.6s & 24.4193s \\
 \end{tabular}
 
-In our second experiment we ran our code using 5 clients with .01, .1
-and 0.5 seconds between requests and measured the min, max and
-average response times.
+Next, we repeated the experiment when using \emph{pull based caching}.
 
 \begin{tabular}{c|c|c|c}
-  REQUEST FREQ. & MIN & MAX & AVG \\
+  REQ Per SEC & MIN & MAX & AVG \\
   \hline
-  0.01s & 0.06s & 0.33s & 0.19743s \\
-  0.1s  & 0.01s & 0.22s & 0.03533s \\
-  0.5s  & 0.01s & 0.04s & 0.01343s \\
+  10  & 0.5s  & 1.57s & 1.25925s \\
+  100 & 0.01s & 0.07s & 0.01312s \\
+  500 & 0.01s & 0.06s & 0.01376s \\
 \end{tabular}
 
-As we observe, adding more clients seems to increase average latency.
-There is a significant difference in average latency (2.4x) when we
-increase from 5 to 10 clients.  there is less of a relative difference
-when we increase to 10 clients. Surprisingly, the minimum latency
-decreases in these runs. We hypothesize that this could be due to
-other things occuring on the network while running our tests or some
-noise related to our leader elections.
+In our final test, we ran our system while killing a random
+\emph{FrontendServer} every 2 seconds.
 
-Also, we observe that having the clients make requests at higher
-frequencies severely affects the latency.  As we flood the network
-with more requests, things drastically slow down.  When we cut our
-between request wait time by 5 (from .5s to .1s) we experience a 3x
-average latency increase (3x slower to get a response).  When we again
-reduce our wait time by a factor of 10 (from .1s to .01s) we see a
-5.5x slow down.
+\begin{tabular}{c|c|c|c}
+  REQ Per SEC & MIN & MAX & AVG \\
+  \hline
+  10  & 0.05s  & 1.57s & 1.25925s \\
+\end{tabular}
+
+%% As we observe, adding more clients seems to increase average latency.
+%% There is a significant difference in average latency (2.4x) when we
+%% increase from 5 to 10 clients.  there is less of a relative difference
+%% when we increase to 10 clients. Surprisingly, the minimum latency
+%% decreases in these runs. We hypothesize that this could be due to
+%% other things occuring on the network while running our tests or some
+%% noise related to our leader elections.
+
+%% Also, we observe that having the clients make requests at higher
+%% frequencies severely affects the latency.  As we flood the network
+%% with more requests, things drastically slow down.  When we cut our
+%% between request wait time by 5 (from .5s to .1s) we experience a 3x
+%% average latency increase (3x slower to get a response).  When we again
+%% reduce our wait time by a factor of 10 (from .1s to .01s) we see a
+%% 5.5x slow down.
 
 \section{Software}
 Like Lab 1 and 2, we've made extensive use of the Akka \emph{actors}
 library.  This library provides a hierarchical message passing
 architecture for the Scala programming language.
-
-\section{How to Run}
 
 \end{document}
