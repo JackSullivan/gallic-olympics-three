@@ -1,0 +1,11 @@
+How to Run
+----------
+
+The system is broken up into multiple processes, each of which can be run with a script. it is currently configured to expect all processes to run on the same machine, but this can be changed without a need to update functionality. All scripts are located in the bin/ directory, and should be started in order.
+
+- start-db.sh: This script should be run first, it kicks off the backend database.
+- start-frontend.sh or start-frontend-faulty.sh These scripts both startup the frontend serverss and establish a connection with the backend database. the 'faulty' version will periodically kill one of the frontend servers (at a rate determined by input arguments) to demonstrate automated recovery. start-frontend.sh takes one argument, 'push' or 'pull', indicating whether push or pull based caching is to be used. start-frontend-faulty.sh used push-based caching, and takes two parameters. The first is the time, in milliseconds, that after which the frontend manager presumes a server to be down if no heartbeat has been received. The second is the interval, in milliseconds that the kill process waits between killing a random server.
+- start-cacofonix.sh: This script sets up a Cacofonix instance that sends messages to the Router with score and medal updates.
+- rand-tablet.sh: This script takes three arguments, the first is the number of tablets to spawn, the second is the frequency (in milliseconds) with which to query for new information, and the third is how many times to do so before shutting down. The output is written to a file.
+
+The scripts are sensitive to the working directory and the location of the jar file. they scripts themselves must be run from inside the bin/ directory.
