@@ -165,12 +165,12 @@ Another potential bottleneck in our system is our method of
 load-balancing.  As the \emph{FrontendManager} recieves
 
 \section{Results}
-We ran our code using 5 clients making 10, 100 and 500 requests per
-second and measured the min, max and average response
+We ran our code using 5 clients using 10, 100 and 500 milliseconds
+between requests and measured the min, max and average response
 times when using \emph{push based caching}.
 
 \begin{tabular}{c|c|c|c}
-  REQ Per SEC & MIN & MAX & AVG \\
+  MS BTW REQ & MIN & MAX & AVG \\
   \hline
   10  & 0.07s & 1.44s & 0.99739s \\
   100 & 0.01s & 10.2s & 4.94568s \\
@@ -180,7 +180,7 @@ times when using \emph{push based caching}.
 Next, we repeated the experiment when using \emph{pull based caching}.
 
 \begin{tabular}{c|c|c|c}
-  REQ Per SEC & MIN & MAX & AVG \\
+  MS BTW REQ SEC & MIN & MAX & AVG \\
   \hline
   10  & 0.5s  & 1.57s & 1.25925s \\
   100 & 0.01s & 0.07s & 0.01312s \\
@@ -188,13 +188,31 @@ Next, we repeated the experiment when using \emph{pull based caching}.
 \end{tabular}
 
 In our final test, we ran our system while killing a random
-\emph{FrontendServer} every 2 seconds.
+\emph{FrontendServer} every 2 seconds.  For this experiment we use
+push based caching.
+
+MAX LATENCY: 0.05 seconds
+MIN LATENCY: 0.01 seconds
+AVERAGE LATENCY: 0.026 seconds
 
 \begin{tabular}{c|c|c|c}
   REQ Per SEC & MIN & MAX & AVG \\
   \hline
-  10  & 0.05s  & 1.57s & 1.25925s \\
+  500  & 0.01s  & 0.05s & 0.026s \\
 \end{tabular}
+
+The results of our experiments show that in push based caching, when
+requests are made extremely frequently, there is very low average
+latency.  We believe that this is due high cache hit rates.  It also
+makes sense that this would be the case because in push based caching
+when a \emph{FrontendServer} receives an update from \emph{Cacofonix},
+only the relevant event or medal count is invalidated.  This allows
+for data to remain in the cache for a long time and leads to quick
+response times.
+
+On the other hand, in pull based caching, we see the opposite
+effect. Here, the higher the request frequency the longer the average
+latency.  We believe that this has to
 
 %% As we observe, adding more clients seems to increase average latency.
 %% There is a significant difference in average latency (2.4x) when we
