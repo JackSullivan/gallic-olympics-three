@@ -120,15 +120,15 @@ assigned a frontend with which to communicate (Section
 Clients periodically send \emph{EventScore} and \emph{MedalTally}
 requests as in the previous assignment. \emph{FrontendServer}s respond
 to their respective clients using a caching strategy that was
-specified via the command line (Section ~\ref{sec:caching}). When a
+specified via the command line (Section ~\ref{subsec:caching}). When a
 client receives a response, it prints that response to the screen.
 
 We also bring our \emph{FrontendServer}s down periodically to test
 faul tolerance. This operates using \emph{Heartbeat} messages and
-communication with the \emph{FrontendManage} (Section
-~\ref{sec:manager}).
+communication with the \emph{FrontendManager} (Section
+~\ref{subsec:manager}).
 
-\emph{Cacofonix} sends score and medeal tally updates just like in the
+\emph{Cacofonix} sends score and medal tally updates just like in the
 previous assignments.
 
 \section{Design, Bottlenecks and Potential Improvements}
@@ -162,7 +162,7 @@ alleviate this problem would be to multithread our servers or make use
 of Akka \emph{Router}s which operate asynchronously by default.
 
 Another potential bottleneck in our system is our method of
-load-balancing.  As the \emph{FrontendManager} recieves
+load-balancing.  As the \emph{FrontendManager} receives
 
 \section{Results}
 We ran our code using 5 clients using 10, 100 and 500 milliseconds
@@ -209,13 +209,24 @@ However, the average latency when requests are made very
 frequently is higher than in pull-based caching.  We believe this is
 the case because in pull-based caching, updates invalidate the whole
 cache leading to more cache misses than in push-based caching.  This,
-in turn, makes pull-based caching slower.  We also believe that we
-have notice a similar latency floor for pull-based caching around
-0.013 seconds (this is again slower than push based caching).
+in turn, makes pull-based caching slower. It is also possible that, 
+since our actors process messages serially, that cache invalidation 
+messages, which are relatively frequent, are adding load to the 
+frontend servers which causes additional latency. We also believe that we
+have noticed a similar latency floor for pull-based caching around
+0.013 seconds (this is again slower than push-based caching).
 
-In a real system, we would probably implement push based cachine or a
+In a real system, we would probably implement push based caching or a
 smarter version of pull-based caching that didn't invalidate the whole
 cache when updating.
+
+In the `faulty' system experiment, we observe, as expected that the 
+latency is higher across the board. This is likely due to a combination 
+of additional message overhead from reassigning work to living servers 
+and restarting them, as well as the additional client message volume that 
+the living server needs to handle.
+
+%For our final test we simulated a faulty frontend network by killing a random frontend server every 
 
 %% As we observe, adding more clients seems to increase average latency.
 %% There is a significant difference in average latency (2.4x) when we
