@@ -11,7 +11,9 @@ case class GetMedalTally(initTime:Long) extends TeamMessageType
 case class TeamMessage(teamName:String, message:TeamMessageType)
 case class UnknownTeam(teamName:String, initTime:Long)
 
-case class MedalTally(team:String, gold:Int, silver:Int, bronze:Int, initTime:Long)
+case class MedalTally(team:String, gold:Int, silver:Int, bronze:Int, initTime:Long) {
+  def withNewTime(newTime:Long) = MedalTally(team, gold, silver, bronze, newTime)
+}
 
 /**
  * The team object stores medal counts and responds to requests to

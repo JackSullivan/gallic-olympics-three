@@ -10,7 +10,9 @@ case class GetEventScore(initTime:Long) extends EventMessageType
 
 case class EventMessage(eventName:String, message:EventMessageType)
 
-case class EventScore(eventName:String, score:String, initTime:Long)
+case class EventScore(eventName:String, score:String, initTime:Long) {
+  def withNewTime(newTime:Long) = EventScore(eventName, score, newTime)
+}
 
 case class UnknownEvent(eventName: String, initTime:Long)
 

@@ -62,8 +62,8 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
     case ClientRequest(message) => {
       println("%s received ClientRequest(%s) from %s".format(context.self, message, sender()))
       message match {
-        case TeamMessage(team, _) if medalCache.contains(team) => sender ! TimestampedResponse(System.currentTimeMillis(), medalCache(team))
-        case EventMessage(event, _) if eventCache.contains(event) => sender ! TimestampedResponse(System.currentTimeMillis(), eventCache(event))
+        case TeamMessage(team, IncrementMedals(t, initTime)) if medalCache.contains(team) => sender ! TimestampedResponse(initTime, medalCache(team).withNewTime(initTime))
+        case EventMessage(event, GetEventScore(initTime)) if eventCache.contains(event) => sender ! TimestampedResponse(System.currentTimeMillis(), eventCache(event).withNewTime(initTime))
         case _ => dbPath ! DBRequest(message, sender(), context.self)
       }
     }
@@ -71,11 +71,11 @@ trait CachingFrontend extends FrontendServer with SubclassableActor {
     case InvalidateTeam(team) => medalCache.remove(team)
     case DBResponse(response, routee, _) => {
       println("%s received %s from %s, routing to %s".format(context.self, response, sender(), routee))
-      response match {
-        case MedalTally(team, g, s, b, time) => medalCache.put(team, MedalTally(team, g, s, b, time))
-        case EventScore(eventName, score, time) => eventCache.put(eventName, EventScore(eventName, score, time))
+      val t = response match {
+        case MedalTally(team, g, s, b, time) => medalCache.put(team, MedalTally(team, g, s, b, time)); time
+        case EventScore(eventName, score, time) => eventCache.put(eventName, EventScore(eventName, score, time)); time
       }
-      routee ! TimestampedResponse(System.currentTimeMillis(), response)
+      routee ! TimestampedResponse(t, response)
     }
   }
 }
@@ -114,6 +114,7 @@ trait PullBasedCaching extends CachingFrontend with SubclassableActor {
 
   addReceiver {
     case InvalidateCache =>
+      println("I've reset my cache")
       eventCache.clear()
       medalCache.clear()
     case CacofonixUpdate(message) => dbPath ! DBWrite(message)
