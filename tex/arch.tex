@@ -191,17 +191,31 @@ In our final test, we ran our system while killing a random
 \emph{FrontendServer} every 2 seconds.  For this experiment we use
 push based caching.
 
-MAX LATENCY: 0.05 seconds
-MIN LATENCY: 0.01 seconds
-AVERAGE LATENCY: 0.026 seconds
-
 \begin{tabular}{c|c|c|c}
   REQ Per SEC & MIN & MAX & AVG \\
   \hline
   500  & 0.01s  & 0.05s & 0.026s \\
 \end{tabular}
 
-For push-based caching 
+For push-based caching, we noticed that our system performs more
+slowly when it's under higher load (clients make requests more
+frequently).  This is expected.  It is interesting to note that the
+average latency drops off a tremendous amount when there are fewer
+requests per second.  However, at some point, it seems like there is some
+floor latency (around 0.01s) inherent in the system.
+
+In pull-based caching, we notice the same trend (which is expected).
+However, the average latency when requests are made very
+frequently is higher than in pull-based caching.  We believe this is
+the case because in pull-based caching, updates invalidate the whole
+cache leading to more cache misses than in push-based caching.  This,
+in turn, makes pull-based caching slower.  We also believe that we
+have notice a similar latency floor for pull-based caching around
+0.013 seconds (this is again slower than push based caching).
+
+In a real system, we would probably implement push based cachine or a
+smarter version of pull-based caching that didn't invalidate the whole
+cache when updating.
 
 %% As we observe, adding more clients seems to increase average latency.
 %% There is a significant difference in average latency (2.4x) when we
