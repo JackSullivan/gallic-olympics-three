@@ -2,4 +2,6 @@ target
 
 *.iml
 .idea
-
+tex/*.pdf
+tex/*.aux
+tex/*.log

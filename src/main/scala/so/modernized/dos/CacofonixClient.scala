@@ -17,8 +17,6 @@ import akka.pattern.ask
  */
 class CacofonixClient(olympicsAddress: Address) {
 
-  def this(olympics: Olympics) = this(Address("akka.tcp","olympics", "127.0.0.1",2552))
-
   implicit val timeout = Timeout(600.seconds)
 
   val system = ActorSystem("cacofonix", ConfigFactory.load("cacofonix"))
